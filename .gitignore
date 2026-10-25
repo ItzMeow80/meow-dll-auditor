@@ -1,0 +1,10 @@
+# scan reports
+report_*.txt
+report_*.csv
+
+# logs
+*.log
+
+# OS noise
+Thumbs.db
+desktop.ini
