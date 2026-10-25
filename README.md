@@ -91,7 +91,7 @@ Valid Authenticode signature → trusted in any location.
 
 4. No cloud reputation lookup: the report prints SHA256 hashes of every `[HIGH]` file so you can check them on VirusTotal manually.
 
-5. Whitelist is path-based by design — a malicious file dropped inside an whitelisted path would be missed. Keep it minimal.
+5. Whitelist is path-based by design — a malicious file dropped inside a whitelisted path would be missed. Keep it minimal.
 
 ---
 
