@@ -31,35 +31,17 @@ MEOW_DLL_Tool.ps1    single-file tool - no install, no external dependencies
 
 ## 🚀 Quick start
 
-Run as **administrator** (recommended, otherwise protected processes are skipped):
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\MEOW_DLL_Tool.ps1
-```
-
-Fully automated, no menu, both levels:
+One command does everything — full audit of every process **plus** the deep memory scan:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\MEOW_DLL_Tool.ps1 -Auto -Deep
 ```
 
-Only specific targets:
+Run it from an **administrator** PowerShell, then read the verdict box at the bottom.
+Reports (TXT + CSV) are written to `Desktop\MEOW_report`.
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\MEOW_DLL_Tool.ps1 -Targets javaw,discord -Auto -Deep
-```
-
-Reports (TXT + CSV) are written to `Desktop\MEOW_report` — change it with `-OutputDir`.
-
-## 🎯 Which check when
-
-| Situation | What to run |
-| --- | --- |
-| General audit of everything running | `-Auto` (Level 1 on every process) |
-| Cheats that never touch the module list (manual map) | `-Auto -Deep` (Level 2) |
-| Minecraft / javaw with a cheat loaded | start the game first, then `-Targets javaw -Auto -Deep` |
-| One suspicious file path | read the `[HIGH]` line, paste the printed SHA256 into VirusTotal |
-| System processes show up as "not accessible" | re-run from an elevated PowerShell |
+That's it — no menus, no options to pick. The tool scans, prints `[HIGH]` findings
+with SHA256 hashes ready for VirusTotal, and saves the report.
 
 ## 🔎 Detection logic
 
