@@ -31,17 +31,16 @@ MEOW_DLL_Tool.ps1    single-file tool - no install, no external dependencies
 
 ## 🚀 Quick start
 
-One command does everything — full audit of every process **plus** the deep memory scan:
+**One command, works from any folder** — paste it into PowerShell (as administrator)
+and press Enter. It downloads the tool and runs the full audit + deep memory scan:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\MEOW_DLL_Tool.ps1 -Auto -Deep
+[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; iwr "https://raw.githubusercontent.com/ItzMeow80/meow-dll-auditor/main/MEOW_DLL_Tool.ps1" -OutFile "$env:TEMP\MEOW_DLL_Tool.ps1" -UseBasicParsing; powershell -ExecutionPolicy Bypass -File "$env:TEMP\MEOW_DLL_Tool.ps1" -Auto -Deep
 ```
 
-Run it from an **administrator** PowerShell, then read the verdict box at the bottom.
-Reports (TXT + CSV) are written to `Desktop\MEOW_report`.
-
-That's it — no menus, no options to pick. The tool scans, prints `[HIGH]` findings
-with SHA256 hashes ready for VirusTotal, and saves the report.
+No install, no clone, no menus, no options to pick. The tool scans every process,
+prints `[HIGH]` findings with SHA256 hashes ready for VirusTotal, shows the verdict
+box, and saves the report (TXT + CSV) to `Desktop\MEOW_report`.
 
 ## 🔎 Detection logic
 
