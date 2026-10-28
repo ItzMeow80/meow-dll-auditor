@@ -1231,7 +1231,18 @@ $script:whitelistPatterns = @(
     "$env:TEMP\jna\jna*.dll",
     "$env:TEMP\.bun-*",
     # lz4-java extracts a hashed native into Temp on every JVM start
-    "$env:TEMP\liblz4-java-*.so"
+    "$env:TEMP\liblz4-java-*.so",
+    # --- SS quiet list (operator, 2026-10-28): known-good noise on ANY
+    # machine, so an SS run does not drown in unsigned debugger builds and
+    # operator tools. Real detections deliberately NOT here: autoclicker
+    # files, Praise.exe, injector64.exe (keyword) keep reporting.
+    "*\x64dbg-unsigned.exe",
+    "*\x32dbg-unsigned.exe",
+    "*\release\*\headless.exe",
+    "*\CercaParole.*",
+    "*\MeowImportsChecker.exe",
+    "*\SSTool.exe",
+    "*\Shard beta\Shard.exe"
 )
 
 # Known native library names accepted inside .minecraft. 'odin' covers
@@ -2723,6 +2734,7 @@ Applied whitelist (these are NOT findings):
   - LZ4:       $env:TEMP\liblz4-java-*.so
   - Minecraft: lwjgl/OpenAL/glfw/jinput/odin natives under .minecraft
   - Custom:    MEOW_whitelist.txt in this folder (operator-defined, per machine)
+  - SS quiet:  x64dbg unsigned builds / CercaParole / MeowImportsChecker / SSTool / Shard
 
 Full DLL breakdown (CSV): $csv
 "@ | Out-File $txt -Encoding UTF8
