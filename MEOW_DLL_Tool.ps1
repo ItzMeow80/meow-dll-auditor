@@ -1239,6 +1239,31 @@ $script:whitelistPatterns = @(
 # BEFORE the signature check, so even the Valid-signed odin.dll was reported.
 $script:MinecraftNatives = '^(lwjgl|OpenAL|jinput|glfw|jawt|odin)'
 
+# ---------------- Per-machine whitelist (operator-defined) ----------------
+# <report folder>\MEOW_whitelist.txt: one '-like' pattern per line, '#' lines
+# are comments. Silences files the operator has vouched for ON THIS MACHINE
+# ONLY - the file is never bundled with the tool, so a screenshare target is
+# still scanned with the full rule set. Keywords always beat it.
+$script:userWhitelist = @()
+$wlFile = Join-Path $OutputDir 'MEOW_whitelist.txt'
+try {
+    if (-not (Test-Path -LiteralPath $OutputDir)) { New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null }
+    if (-not (Test-Path -LiteralPath $wlFile)) {
+        $wlSeed = @'
+# MEOW per-machine whitelist - one pattern per line (-like syntax).
+# Lines starting with # are ignored. Patterns match the FULL path, e.g.:
+#   C:\Users\*\Downloads\my-tool.exe
+#   C:\Tools\*\helper.dll
+# Keyword matches (inject/cheat/...) are never silenced by this file.
+# Everything listed here is silenced on THIS machine only.
+'@
+        [IO.File]::WriteAllText($wlFile, $wlSeed, [Text.UTF8Encoding]::new($false))
+    }
+    $script:userWhitelist = @([IO.File]::ReadAllLines($wlFile) |
+        ForEach-Object { $_.Trim() } |
+        Where-Object { $_ -and -not $_.StartsWith('#') })
+} catch { }
+
 # Cheat / injector keywords: [HIGH] even when signed
 $script:KeywordHint = 'injection|inject|cheat|aimbot|triggerbot|wallhack|esp[-_.]|bypass|manual[-_]?map|payload|crack|hack'
 
@@ -1445,8 +1470,22 @@ function Get-DiskHead {
 # every hit. Keying on procDir exploded the key space across ~170 processes
 # (3.3k misses x 1.4 ms per full scan) for one rule that never changes the
 # keyword/missing/whitelist/Valid verdicts.
+# Win32 can hand back extended-length paths (\\?\C:\...). They defeat every
+# -like rule (procDir, trusted roots, whitelist), which reported Lunar
+# Client's OWN .node modules as [PATH+SIG] HIGH. Normalize first, always.
+function Get-CleanPath {
+    param([string]$p)
+    if ($p -and $p.StartsWith('\\?\')) {
+        if ($p.StartsWith('\\?\UNC\')) { return ('\\' + $p.Substring(8)) }   # \\?\UNC\srv\sh -> \\srv\sh
+        return $p.Substring(4)
+    }
+    return $p
+}
+
 function Get-RiskLevel {
     param($path, $sigStatus, $procDir)
+    $path = Get-CleanPath $path
+    if ($procDir) { $procDir = Get-CleanPath $procDir }
     $rkey = $path + [char]1 + $sigStatus
     $hit = $script:riskCache[$rkey]
     if ($null -eq $hit) {
@@ -1479,6 +1518,11 @@ function Get-RiskLevelUncached {
     #    wiped by a cleaner while its module is still loaded, and an approved
     #    name that is gone is not a finding.
     foreach ($p in $script:whitelistPatterns) { if ($path -like $p) { return '' } }
+
+    # 2b) per-machine whitelist: operator-vouched files (MEOW_whitelist.txt)
+    if ($script:userWhitelist) {
+        foreach ($p in $script:userWhitelist) { if ($path -like $p) { return '' } }
+    }
 
     # 3) file vanished from disk
     if (-not (Test-PathCached -path $path)) { return 'HIGH' }
@@ -1596,7 +1640,7 @@ function Invoke-ModuleAudit {
             try { if ($proc.Path) { [void]$pathSet.Add($proc.Path) } } catch { }
             $mods = Get-ProcModulesCached $proc
             if ($mods -and $mods -ne $false) {
-                foreach ($m in $mods) { if ($m.Path) { [void]$pathSet.Add($m.Path) } }
+                foreach ($m in $mods) { if ($m.Path) { [void]$pathSet.Add((Get-CleanPath $m.Path)) } }
             }
         }
     }
@@ -1634,7 +1678,7 @@ function Invoke-ModuleAudit {
             $procHigh = 0
 
             foreach ($m in $modules) {
-                $path = $m.Path
+                $path = Get-CleanPath $m.Path
                 # inline cache lookup: Phase A pre-warms every module path, so
                 # the PS function call itself (measured ~260 ms/6.9k calls)
                 # would dominate; only rare misses go through Get-SigCached
@@ -2678,6 +2722,7 @@ Applied whitelist (these are NOT findings):
   - Bun:       $env:TEMP\.bun-*
   - LZ4:       $env:TEMP\liblz4-java-*.so
   - Minecraft: lwjgl/OpenAL/glfw/jinput/odin natives under .minecraft
+  - Custom:    MEOW_whitelist.txt in this folder (operator-defined, per machine)
 
 Full DLL breakdown (CSV): $csv
 "@ | Out-File $txt -Encoding UTF8
