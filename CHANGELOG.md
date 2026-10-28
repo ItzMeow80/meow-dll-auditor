@@ -12,6 +12,7 @@ All notable changes to the MEOW DLL Injection & Cheat Auditor.
 - TXT + CSV reports, SHA256 export for VirusTotal, `-Watch` mode, interactive menu
 - Whitelist entries for known-good natives (lz4-java temp natives, client odin natives, JNA, Bun, NGEN)
 - Optional per-machine whitelist MEOW_whitelist.txt in the report folder (one -like pattern per line): silences operator-vouched files on this machine only, keyword hits are never silenced
+- Built-in SS quiet list: unsigned x64dbg builds, CercaParole, MeowImportsChecker, SSTool and Shard never raise [HIGH] on any machine; real detections (autoclicker files, Praise.exe, keyword hits) keep reporting
 
 ### Fixed
 - Extended-length paths (\\?\C:\...) no longer break path rules - a client's own native modules were reported [PATH+SIG] HIGH
