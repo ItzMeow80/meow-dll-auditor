@@ -9,6 +9,7 @@ All notable changes to the MEOW DLL Injection & Cheat Auditor.
 
 ### Added
 - SS quiet list: ``hollow_detector.exe`` (operator's process-hollowing detector) never raises ``[HIGH]``
+
 ## [8.0] - 2026-10-28
 
 ### Added
