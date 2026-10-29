@@ -2,7 +2,7 @@
 ================================================================================
   MEOW  -  DLL Injection & Cheat Auditor
   Author: ItzMeow80
-  Version 8.0
+  Version 8.1
 ================================================================================
 
   WHAT IT DOES
@@ -100,7 +100,7 @@ param(
 
 $ErrorActionPreference = 'SilentlyContinue'
 $ToolName    = 'MEOW DLL Injection & Cheat Auditor'
-$ToolVersion = '8.0'
+$ToolVersion = '8.1'
 $ToolAuthor  = 'ItzMeow80'
 if ($FullScan) { $Auto = $true }
 
@@ -265,6 +265,58 @@ public static class Native {
             cur = flink;
         }
         return outp.ToArray();
+    }
+
+    // v8.1: loader-init race probe. A process younger than its
+    // LdrInitializeThunk has ntdll + exe mapped by the kernel but NOT yet
+    // registered in PEB.Ldr or EnumProcessModulesEx - RegionScan then
+    // reports the bootstrap as "not in loader list" (measured: a cmd.exe
+    // caught within its first milliseconds flagged ntdll twice, 1484 KB +
+    // 4 KB exec regions). Callers use this to defer hidden-module findings
+    // while the loader is still initializing.
+    //   1 = loader initialized (module lists can be trusted)
+    //   0 = loader mid-init (PEB.Ldr absent or Initialized == 0)
+    //  -1 = could not determine (callers treat as 1: keep detecting)
+    public static int GetLdrInitialized(IntPtr h, bool wow64) {
+        try {
+            if (!wow64) {
+                IntPtr tmp = Marshal.AllocHGlobal(0x30);
+                try {
+                    int ret;
+                    byte[] z = new byte[0x30];
+                    Marshal.Copy(z, 0, tmp, 0x30);
+                    if (NtQueryInformationProcess(h, 0, tmp, 0x30, out ret) != 0) return -1;
+                    long peb = Marshal.ReadInt64(tmp, 8);
+                    if (peb < 0x10000) return -1;
+                    byte[] b = ReadMem(h, peb + 0x18, 8);          // PEB.Ldr
+                    if (b == null || b.Length < 8) return -1;
+                    long ldr = BitConverter.ToInt64(b, 0);
+                    if (ldr < 0x10000) return 0;                    // not built yet
+                    byte[] c = ReadMem(h, ldr + 4, 1);             // PEB_LDR_DATA.Initialized
+                    if (c == null || c.Length < 1) return 0;
+                    return (c[0] != 0) ? 1 : 0;
+                } finally { Marshal.FreeHGlobal(tmp); }
+            } else {
+                // WOW64: 32-bit PEB via ProcessWow64Information (class 26);
+                // PEB_LDR_DATA32.Initialized sits at the same +4 offset.
+                IntPtr tmp = Marshal.AllocHGlobal(8);
+                try {
+                    int ret;
+                    byte[] z = new byte[8];
+                    Marshal.Copy(z, 0, tmp, 8);
+                    if (NtQueryInformationProcess(h, 26, tmp, 8, out ret) != 0) return -1;
+                    long peb32 = Marshal.ReadInt64(tmp, 0);
+                    if (peb32 < 0x10000) return -1;
+                    byte[] b = ReadMem(h, peb32 + 0x0C, 4);        // PEB32.Ldr
+                    if (b == null || b.Length < 4) return -1;
+                    long ldr = BitConverter.ToUInt32(b, 0);
+                    if (ldr < 0x10000) return 0;
+                    byte[] c = ReadMem(h, ldr + 4, 1);             // Initialized
+                    if (c == null || c.Length < 1) return 0;
+                    return (c[0] != 0) ? 1 : 0;
+                } finally { Marshal.FreeHGlobal(tmp); }
+            }
+        } catch { return -1; }
     }
 
     static string[] WalkPeb32(IntPtr h) {
@@ -1242,7 +1294,8 @@ $script:whitelistPatterns = @(
     "*\CercaParole.*",
     "*\MeowImportsChecker.exe",
     "*\SSTool.exe",
-    "*\Shard beta\Shard.exe"
+    "*\Shard beta\Shard.exe",
+    "*\hollow_detector.exe"      # process-hollowing detector (operator tool, 2026-10-29)
 )
 
 # Known native library names accepted inside .minecraft. 'odin' covers
@@ -1911,6 +1964,21 @@ function Invoke-DeepScan {
                 if ($parts.Count -ge 1 -and $parts[0]) { [void]$knownList.Add([long]$parts[0]) }
             }
 
+            # v8.1 loader-init race: a process younger than LdrInitializeThunk
+            # has ntdll + exe mapped by the kernel but not registered in any
+            # loader list, so RegionScan reports the bootstrap itself as
+            # "not in loader list" (reproduced: 4 transient cmd.exe shells
+            # flagged ntdll twice each - 1484 KB + 4 KB exec regions).
+            # Transient shells finish init within a few ms: probe once, wait
+            # 250 ms, probe again. Still mid-init => hidden-module findings
+            # are deferred for this process (stats still collected); a real
+            # manual map in any stable process is reported exactly as before.
+            $ldrState = [MeowAudit.Native]::GetLdrInitialized($h, $wow64)
+            if ($ldrState -eq 0) {
+                Start-Sleep -Milliseconds 250
+                $ldrState = [MeowAudit.Native]::GetLdrInitialized($h, $wow64)
+            }
+
             # One C# walk over every region (the old PS loop did thousands of
             # [MeowAudit.Native] calls + per-region byte reads from PowerShell).
             $res = [MeowAudit.Fast]::RegionScan($h, $knownList.ToArray())
@@ -1924,6 +1992,7 @@ function Invoke-DeepScan {
                         $secMapped   = [int]$s[4]
                     }
                 } elseif ($line.StartsWith('PE|')) {
+                    if ($ldrState -eq 0) { continue }   # v8.1: loader mid-init = bootstrap, not injection
                     $p = $line -split '\|', 4
                     if ($p.Count -ge 4) {
                         $allocBase = [Convert]::ToInt64($p[1], 16)
@@ -1943,7 +2012,8 @@ function Invoke-DeepScan {
 
             [MeowAudit.Native]::CloseHandle($h) | Out-Null
 
-            $script:findings.INFO.Add("[MEMORY] $($proc.ProcessName) (PID $($proc.Id)) - exec: $execRegions regions/$execKB KB, WX: $wxRegions/$wxKB KB$(if($secMapped){', orphan MEM_IMAGE: '+$secMapped}else{''})")
+            $initNote = if ($ldrState -eq 0) { ', loader mid-init (bootstrap images skipped)' } else { '' }
+            $script:findings.INFO.Add("[MEMORY] $($proc.ProcessName) (PID $($proc.Id)) - exec: $execRegions regions/$execKB KB, WX: $wxRegions/$wxKB KB$(if($secMapped){', orphan MEM_IMAGE: '+$secMapped}else{''})$initNote")
 
             $lmNote = if ($legitMaps -gt 0) { ", $legitMaps vendor map(s) verified" } else { '' }
             if ($mzFound -gt 0) {
