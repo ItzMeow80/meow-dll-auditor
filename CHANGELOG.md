@@ -2,6 +2,13 @@
 
 All notable changes to the MEOW DLL Injection & Cheat Auditor.
 
+## [8.1] - 2026-10-29
+
+### Fixed
+- ``[HIDDEN_MODULE]`` false positives on brand-new processes: a process younger than its ``LdrInitializeThunk`` has ntdll + exe mapped by the kernel but is not yet registered in PEB.Ldr or EnumProcessModulesEx, so the bootstrap itself was reported as "not in loader list" (reproduced deterministically: transient ``cmd.exe`` shells flagged ntdll twice each, 1484 KB + 4 KB exec regions). The deep scan now probes ``PEB_LDR_DATA.Initialized``, retries after 250 ms and defers hidden-module findings only while the loader is still mid-init. Detection in every stable process is unchanged.
+
+### Added
+- SS quiet list: ``hollow_detector.exe`` (operator's process-hollowing detector) never raises ``[HIGH]``
 ## [8.0] - 2026-10-28
 
 ### Added
