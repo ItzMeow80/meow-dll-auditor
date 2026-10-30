@@ -2,6 +2,11 @@
 
 All notable changes to the MEOW DLL Injection & Cheat Auditor.
 
+## [8.2] - 2026-10-30
+
+### Added
+- Hash whitelist (content-addressed): the operator toolset is silenced by SHA256 only - mc-ss-tool.exe, CMake's CompilerIdCXX.exe, MeowClientFucker.exe, MeowDoomsdayFucker.exe and both SS-Shellcode-Scanner.exe copies no longer raise ``[PATH+SIG]``. Only those exact bytes are silenced anywhere: a different file with the same name still reports, and keyword matches are checked first so hashes can never hide a keyword hit.
+- ``MEOW_whitelist.txt`` now accepts ``sha256:<64 hex>`` lines alongside ``-like`` path patterns, for vouching one file per machine without re-releasing the tool.
 ## [8.1] - 2026-10-29
 
 ### Fixed
