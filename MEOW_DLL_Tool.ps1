@@ -2,7 +2,7 @@
 ================================================================================
   MEOW  -  DLL Injection & Cheat Auditor
   Author: ItzMeow80
-  Version 8.2
+  Version 8.3
 ================================================================================
 
   WHAT IT DOES
@@ -100,7 +100,7 @@ param(
 
 $ErrorActionPreference = 'SilentlyContinue'
 $ToolName    = 'MEOW DLL Injection & Cheat Auditor'
-$ToolVersion = '8.2'
+$ToolVersion = '8.3'
 $ToolAuthor  = 'ItzMeow80'
 if ($FullScan) { $Auto = $true }
 
@@ -1400,6 +1400,9 @@ $script:diskHeadCache = @{}   # path -> first 512 bytes on disk
 $script:seenFindings = [System.Collections.Generic.HashSet[string]]::new()
 $script:pathQueue   = New-Object System.Collections.Generic.List[object]   # L4 deferred path checks
 $script:riskCache  = @{}     # "path|sig" -> @(level, procDirSensitive) (Get-RiskLevel memo)
+$script:modMed   = @{}   # v8.3: path -> @{Idx; N} loaded-module MEDIUM dedupe
+$script:memScanned = 0   # v8.3: deep-scan memory-stat counters (report noise cut)
+$script:memShown   = 0
 
 # ---------------- Core helpers ----------------
 function Add-Finding {
@@ -1827,7 +1830,23 @@ function Invoke-ModuleAudit {
                     Add-Finding HIGH "[$reason] $($proc.ProcessName) (PID $($proc.Id)) - $($m.Name) -> $path (signature: $($sigInfo.Status))"
                 }
                 elseif ($level -eq 'MEDIUM') {
-                    Add-Finding MEDIUM "$($proc.ProcessName) (PID $($proc.Id)) - $($m.Name) -> $path (signature: $($sigInfo.Status))"
+                    # v8.3: one finding per FILE, not per process - the same
+                    # DLL loaded in N processes is a single review item
+                    # (was: N near-identical lines, e.g. ffmpeg.dll x6).
+                    $slot = $script:modMed[$path]
+                    if ($null -eq $slot) {
+                        $msg = "$($proc.ProcessName) (PID $($proc.Id)) - $($m.Name) -> $path (signature: $($sigInfo.Status))"
+                        Add-Finding MEDIUM $msg
+                        $slot = @{ Idx = $script:findings.MEDIUM.IndexOf($msg); N = 1 }
+                        $script:modMed[$path] = $slot
+                    } else {
+                        $slot.N = [int]$slot.N + 1
+                        if ($slot.Idx -ge 0 -and $slot.Idx -lt $script:findings.MEDIUM.Count) {
+                            $cur = $script:findings.MEDIUM[$slot.Idx]
+                            if ($cur -match ' \(\d+ procs\)$') { $cur = $cur -replace ' \(\d+ procs\)$', '' }
+                            $script:findings.MEDIUM[$slot.Idx] = "$cur ($($slot.N) procs)"
+                        }
+                    }
                 }
             }
 
@@ -1995,7 +2014,10 @@ function Invoke-DeepScan {
         foreach ($proc in $procs) {
             $h = Get-ProcHandle $proc
             if ($h -eq [IntPtr]::Zero) {
-                $script:denied.Add("$($proc.ProcessName) (PID $($proc.Id)) [deep]")
+                # v8.3: don't list the same process twice - level 1 already
+                # reported it as denied, the deep pass adds no information.
+                $dKey = "$($proc.ProcessName) (PID $($proc.Id))"
+                if (-not $script:denied.Contains($dKey)) { $script:denied.Add("$dKey [deep]") }
                 continue
             }
             $nProc++
@@ -2065,7 +2087,15 @@ function Invoke-DeepScan {
             [MeowAudit.Native]::CloseHandle($h) | Out-Null
 
             $initNote = if ($ldrState -eq 0) { ', loader mid-init (bootstrap images skipped)' } else { '' }
-            $script:findings.INFO.Add("[MEMORY] $($proc.ProcessName) (PID $($proc.Id)) - exec: $execRegions regions/$execKB KB, WX: $wxRegions/$wxKB KB$(if($secMapped){', orphan MEM_IMAGE: '+$secMapped}else{''})$initNote")
+            # v8.3: only processes with something to report are listed (WX
+            # regions, orphan MEM_IMAGE, hidden module, mid-init loader).
+            # The clean majority (WX: 0/0, nothing orphan) is counted in one
+            # summary line - was 178 flat lines that carried no information.
+            $script:memScanned++
+            if (($wxRegions -gt 0) -or ($secMapped -gt 0) -or ($mzFound -gt 0) -or ($ldrState -eq 0)) {
+                $script:memShown++
+                $script:findings.INFO.Add("[MEMORY] $($proc.ProcessName) (PID $($proc.Id)) - exec: $execRegions regions/$execKB KB, WX: $wxRegions/$wxKB KB$(if($secMapped){', orphan MEM_IMAGE: '+$secMapped}else{''})$initNote")
+            }
 
             $lmNote = if ($legitMaps -gt 0) { ", $legitMaps vendor map(s) verified" } else { '' }
             if ($mzFound -gt 0) {
@@ -2075,6 +2105,12 @@ function Invoke-DeepScan {
                 Write-Host "$dim  exec $execRegions/$execKB KB$wxNote$lmNote - no hidden module$reset"
             }
         }
+    }
+    # v8.3: single summary line replaces the per-process lines that carried
+    # no information (exec 0 / WX 0/0 / no orphan image / no hidden module)
+    if ($script:memScanned -gt 0) {
+        $memClean = $script:memScanned - $script:memShown
+        $script:findings.INFO.Add("[MEMORY] summary: $($script:memScanned) processes deep-scanned, $($script:memShown) listed (WX / orphan MEM_IMAGE / hidden module / mid-init), $memClean with clean memory stats omitted")
     }
     # live injector hunt: system-wide handle triad scan (who is holding
     # injection rights on a process right now)
@@ -2842,7 +2878,8 @@ $(if ($hashLines.Count -gt 0) { $hashLines -join "`n" } else { "(none)" })
 [MEDIUM] - review
 $(if ($med -gt 0) { $script:findings.MEDIUM -join "`n" } else { "(none)" })
 
-INFO - executable memory per process (exec = unbacked executable regions, WX = write+execute):
+INFO - executable memory per process (exec = unbacked executable regions, WX = write+execute).
+Only processes with WX / orphan image / hidden module are listed - clean stats are counted in the summary:
 $(($script:findings.INFO | Select-Object -First 300) -join "`n")
 
 Processes not accessible (administrator rights required):
