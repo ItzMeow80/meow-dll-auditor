@@ -2,6 +2,14 @@
 
 All notable changes to the MEOW DLL Injection & Cheat Auditor.
 
+## [8.3] - 2026-10-30
+
+### Changed
+- Report noise cut (presentation only - CSV keeps the full per-process data, no detection rule changed):
+- Loaded-module MEDIUM findings are now **one line per file** instead of one per process: the same DLL loaded in N processes prints once with ``(N procs)`` (was: e.g. 6 identical ``ffmpeg.dll`` lines for 6 Lunar Client instances).
+- ``[MEMORY]`` INFO lines are listed only when the process carries actual signal (write+execute regions, orphan MEM_IMAGE, hidden module or mid-init loader). The clean majority (``WX: 0/0``) is replaced by one summary line: ``N processes deep-scanned, M listed, K clean omitted`` (was one flat line per process - 178 lines in a typical run).
+- The "Processes not accessible" list no longer lists a process twice (level-1 entry + deep ``[deep]`` entry for the same PID).
+- HIGH findings are untouched: still one line per process, all keyword/hash/whitelist rules unchanged.
 ## [8.2] - 2026-10-30
 
 ### Added
