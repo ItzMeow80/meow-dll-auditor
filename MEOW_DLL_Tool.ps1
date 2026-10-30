@@ -2,7 +2,7 @@
 ================================================================================
   MEOW  -  DLL Injection & Cheat Auditor
   Author: ItzMeow80
-  Version 8.1
+  Version 8.2
 ================================================================================
 
   WHAT IT DOES
@@ -100,7 +100,7 @@ param(
 
 $ErrorActionPreference = 'SilentlyContinue'
 $ToolName    = 'MEOW DLL Injection & Cheat Auditor'
-$ToolVersion = '8.1'
+$ToolVersion = '8.2'
 $ToolAuthor  = 'ItzMeow80'
 if ($FullScan) { $Auto = $true }
 
@@ -1298,34 +1298,58 @@ $script:whitelistPatterns = @(
     "*\hollow_detector.exe"      # process-hollowing detector (operator tool, 2026-10-29)
 )
 
+# ---------------- Hash whitelist (v8.2, content-addressed) ----------------
+# SHA256 (lowercase) of the operator's own toolset, vouched 2026-10-30.
+# Only these EXACT bytes are silenced anywhere - a different file that merely
+# shares the name still reports as before, and keyword matches (rule 1) never
+# reach this check, so keyword hits can never be hash-whitelisted away.
+$script:whitelistHashes = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+@(
+    '39ae55d7af43d16149fc3235ebbeb8a74509b0a6ac46cf0d01592556acb4a3b0',  # CompilerIdCXX.exe (CMake compiler-id probe)
+    'e8c55696ebb0ca8ecffa74a20e9860627886501905bb9112ac9fe2b3b5dd3935',  # mc-ss-tool.exe
+    'ad436e3d6776c7c32023c76734139666d9c24c7b14b729ff47ba654af2021989',  # MeowClientFucker.exe
+    'bc93aa88f8336478f44f8fbbfcb0ae54f1e9bf4e256a4c0ebf8e5b0ccdb61310',  # MeowDoomsdayFucker.exe
+    '7f31bbd422815303bbd99d58a247a19937adc9bbcdd451a82d552505a379672d',  # SS-Shellcode-Scanner(1).exe (Downloads copy)
+    '6237f5a43f8a2312213fade2bd36161b5746ebecd1c082d6bf6d02055be0d1e3'   # SS-Shellcode-Scanner.exe (both copies)
+) | ForEach-Object { [void]$script:whitelistHashes.Add($_) }
+$script:hashCache = @{}   # path -> sha256 (lowercase) or $null when unreadable
+
 # Known native library names accepted inside .minecraft. 'odin' covers
 # odin.dll / odinwrapper.dll shipped in client natives folders: rule 4 runs
 # BEFORE the signature check, so even the Valid-signed odin.dll was reported.
 $script:MinecraftNatives = '^(lwjgl|OpenAL|jinput|glfw|jawt|odin)'
 
 # ---------------- Per-machine whitelist (operator-defined) ----------------
-# <report folder>\MEOW_whitelist.txt: one '-like' pattern per line, '#' lines
+# <report folder>\MEOW_whitelist.txt: one '-like' pattern per line, or a
+# 'sha256:<64 hex>' line (v8.2) to whitelist ONE file by content. '#' lines
 # are comments. Silences files the operator has vouched for ON THIS MACHINE
 # ONLY - the file is never bundled with the tool, so a screenshare target is
 # still scanned with the full rule set. Keywords always beat it.
 $script:userWhitelist = @()
+$script:userWhitelistHashes = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
 $wlFile = Join-Path $OutputDir 'MEOW_whitelist.txt'
 try {
     if (-not (Test-Path -LiteralPath $OutputDir)) { New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null }
     if (-not (Test-Path -LiteralPath $wlFile)) {
         $wlSeed = @'
-# MEOW per-machine whitelist - one pattern per line (-like syntax).
+# MEOW per-machine whitelist - one pattern per line (-like syntax), or a
+# hash line: sha256:<64 hex>  (whitelists exactly that file content).
 # Lines starting with # are ignored. Patterns match the FULL path, e.g.:
 #   C:\Users\*\Downloads\my-tool.exe
 #   C:\Tools\*\helper.dll
+#   sha256:39ae55d7af43d16149fc3235ebbeb8a74509b0a6ac46cf0d01592556acb4a3b0
 # Keyword matches (inject/cheat/...) are never silenced by this file.
 # Everything listed here is silenced on THIS machine only.
 '@
         [IO.File]::WriteAllText($wlFile, $wlSeed, [Text.UTF8Encoding]::new($false))
     }
-    $script:userWhitelist = @([IO.File]::ReadAllLines($wlFile) |
-        ForEach-Object { $_.Trim() } |
-        Where-Object { $_ -and -not $_.StartsWith('#') })
+    foreach ($rawLine in [IO.File]::ReadAllLines($wlFile)) {
+        $l = $rawLine.Trim()
+        if (-not $l -or $l.StartsWith('#')) { continue }
+        $hm = [regex]::Match($l, '^(?:sha256[:=])?\s*([0-9a-fA-F]{64})$')
+        if ($hm.Success) { [void]$script:userWhitelistHashes.Add($hm.Groups[1].Value) }
+        else { $script:userWhitelist += $l }
+    }
 } catch { }
 
 # Cheat / injector keywords: [HIGH] even when signed
@@ -1546,6 +1570,30 @@ function Get-CleanPath {
     return $p
 }
 
+# Hash whitelist probe (v8.2): only called when a verdict is about to be
+# HIGH (rule 7a), so the cost is bounded by the number of suspects - valid
+# signatures, trusted folders and whitelisted paths never hash anything.
+# Cached per path; failure to hash is not a whitelist hit (fail closed).
+function Test-HashWhitelisted {
+    param([string]$path)
+    if ((-not $script:whitelistHashes.Count) -and (-not $script:userWhitelistHashes.Count)) { return $false }
+    if (-not $path) { return $false }
+    $h = $null
+    if ($script:hashCache.ContainsKey($path)) { $h = $script:hashCache[$path] }
+    else {
+        try {
+            if (Test-PathCached -path $path) {
+                $h = (Get-FileHash -LiteralPath $path -Algorithm SHA256 -ErrorAction Stop).Hash.ToLower()
+            }
+        } catch { $h = $null }
+        $script:hashCache[$path] = $h
+    }
+    if (-not $h) { return $false }
+    if ($script:whitelistHashes.Contains($h)) { return $true }
+    if ($script:userWhitelistHashes.Count -gt 0 -and $script:userWhitelistHashes.Contains($h)) { return $true }
+    return $false
+}
+
 function Get-RiskLevel {
     param($path, $sigStatus, $procDir)
     $path = Get-CleanPath $path
@@ -1605,6 +1653,10 @@ function Get-RiskLevelUncached {
     if ($procDir -and $path -like "$procDir*") { return 'MEDIUM' }
 
     # 7) unsigned and outside every trusted folder -> suspicious
+    # 7a) hash whitelist (v8.2): reached only when the verdict would be HIGH;
+    #     the file's own SHA256 must match a vouched hash. Keyword matches
+    #     returned at rule 1, so hashes can never silence keyword hits.
+    if (Test-HashWhitelisted -path $path) { return '' }
     return 'HIGH'
 }
 
@@ -2803,8 +2855,9 @@ Applied whitelist (these are NOT findings):
   - Bun:       $env:TEMP\.bun-*
   - LZ4:       $env:TEMP\liblz4-java-*.so
   - Minecraft: lwjgl/OpenAL/glfw/jinput/odin natives under .minecraft
-  - Custom:    MEOW_whitelist.txt in this folder (operator-defined, per machine)
-  - SS quiet:  x64dbg unsigned builds / CercaParole / MeowImportsChecker / SSTool / Shard
+  - Custom:    MEOW_whitelist.txt in this folder (patterns or sha256: lines, per machine)
+  - SS quiet:  x64dbg unsigned builds / CercaParole / MeowImportsChecker / SSTool / Shard / hollow_detector
+  - Hash:      SHA256 of operator toolset (mc-ss-tool / CompilerIdCXX / MeowClientFucker / MeowDoomsdayFucker / SS-Shellcode-Scanner)
 
 Full DLL breakdown (CSV): $csv
 "@ | Out-File $txt -Encoding UTF8
