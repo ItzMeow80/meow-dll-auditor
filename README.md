@@ -3,7 +3,7 @@
 ---
 
 > [!CAUTION]
-> MEOW DLL Tool v7 and older are deprecated - use the current **v8.0** (`MEOW_DLL_Tool.ps1`), the new Suspicious DLL Finder.
+> MEOW DLL Tool v7 and older are deprecated - use the current **v8.3** (`MEOW_DLL_Tool.ps1`), the new Suspicious DLL Finder.
 
 ### `about`
 
@@ -13,7 +13,7 @@ $ ./meow-auditor --info
 
 ```
 Tool      :  MEOW DLL Injection & Cheat Auditor
-Version   :  8.0
+Version   :  8.3
 Author    :  ItzMeow80
 Target    :  Injected DLLs, manual-mapped cheats, hidden modules (any process)
 Type      :  PowerShell forensic auditor - module audit + native memory scan
@@ -110,4 +110,4 @@ Valid Authenticode signature → trusted in any location.
 
 ---
 
-**Made by MEOW** · `ItzMeow80` · v8.0 · Zero-noise policy: no `[HIGH]` without evidence
+**Made by MEOW** · `ItzMeow80` · v8.3 · Zero-noise policy: no `[HIGH]` without evidence
